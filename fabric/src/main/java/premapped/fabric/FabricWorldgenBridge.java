@@ -23,7 +23,7 @@ import premapped.generation.ChunkCoordinate;
  */
 public final class FabricWorldgenBridge implements WorldgenPlatformBridge {
     private static final ChunkTicketType<ChunkPos> TICKET = ChunkTicketType.create(
-            "premapped", Comparator.comparingLong(ChunkPos::toLong));
+        "premapped", Comparator.comparingLong(ChunkPos::toLong));
     private final MinecraftServer server;
     private final ServerWorld world;
     private final Set<ChunkPos> ownedTickets = new HashSet<>();
@@ -39,8 +39,8 @@ public final class FabricWorldgenBridge implements WorldgenPlatformBridge {
     public CompletableFuture<Boolean> isStoredFull(ChunkCoordinate position) {
         requireServerThread();
         return ((ServerChunkManagerAccessor) world.getChunkManager()).premapped$getStorage()
-                .getNbt(new ChunkPos(position.x(), position.z()))
-                .thenApply(nbt -> nbt.filter(value -> isFullNbt(value, position)).isPresent());
+            .getNbt(new ChunkPos(position.x(), position.z()))
+            .thenApply(nbt -> nbt.filter(value -> isFullNbt(value, position)).isPresent());
     }
 
     /** Requests FULL without blocking the server thread or running worldgen on our own executor. */
@@ -51,26 +51,26 @@ public final class FabricWorldgenBridge implements WorldgenPlatformBridge {
         world.getChunkManager().addTicket(TICKET, chunkPos, 0, chunkPos);
         ownedTickets.add(chunkPos);
         return world.getChunkManager().getChunkFutureSyncOnMainThread(
-                position.x(), position.z(), ChunkStatus.FULL, true).thenCompose(result ->
-                onServer(() -> {
-                    var chunk = result.left().orElseThrow(() ->
-                            new IllegalStateException("Minecraft could not complete " + chunkPos));
-                    if (!chunk.getStatus().isAtLeast(ChunkStatus.FULL)) {
-                        throw new IllegalStateException("Incomplete chunk returned for " + chunkPos);
-                    }
-                    // Force vanilla's normal save path before making any durable completion claim.
-                    chunk.setNeedsSaving(true);
-                    if (!server.save(true, true, true)) {
-                        throw new IllegalStateException("Minecraft did not save " + chunkPos);
-                    }
-                    return isStoredFull(position);
-                })).thenCompose(saved -> onServer(() -> {
-                    release(chunkPos);
-                    if (!saved) {
-                        throw new IllegalStateException("Stored FULL verification failed for " + chunkPos);
-                    }
-                    return CompletableFuture.completedFuture(null);
-                }));
+            position.x(), position.z(), ChunkStatus.FULL, true).thenCompose(result ->
+            onServer(() -> {
+                var chunk = result.left().orElseThrow(() ->
+                    new IllegalStateException("Minecraft could not complete " + chunkPos));
+                if (!chunk.getStatus().isAtLeast(ChunkStatus.FULL)) {
+                    throw new IllegalStateException("Incomplete chunk returned for " + chunkPos);
+                }
+                // Force vanilla's normal save path before making any durable completion claim.
+                chunk.setNeedsSaving(true);
+                if (!server.save(true, true, true)) {
+                    throw new IllegalStateException("Minecraft did not save " + chunkPos);
+                }
+                return isStoredFull(position);
+            })).thenCompose(saved -> onServer(() -> {
+            release(chunkPos);
+            if (!saved) {
+                throw new IllegalStateException("Stored FULL verification failed for " + chunkPos);
+            }
+            return CompletableFuture.completedFuture(null);
+        }));
     }
 
     /** Releases job-owned tickets during pause, failure or ordinary server shutdown. */
@@ -85,7 +85,9 @@ public final class FabricWorldgenBridge implements WorldgenPlatformBridge {
         CompletableFuture<T> future = new CompletableFuture<>();
         server.execute(() -> {
             try {
-                if (server.isStopping()) {
+                // In 1.20.1 isStopping() means the thread has already exited, so it
+                // cannot guard a callback executing on that same thread during shutdown.
+                if (!server.isRunning() || server.isStopped()) {
                     throw new IllegalStateException("Server is stopping; no further worldgen IO dispatched");
                 }
                 action.get().whenComplete((result, error) -> {
@@ -107,8 +109,8 @@ public final class FabricWorldgenBridge implements WorldgenPlatformBridge {
     private static boolean isFullNbt(NbtCompound nbt, ChunkCoordinate position) {
         String status = nbt.getString("Status");
         return ("minecraft:full".equals(status) || "full".equals(status))
-                && nbt.contains("xPos", NbtElement.INT_TYPE) && nbt.contains("zPos", NbtElement.INT_TYPE)
-                && nbt.getInt("xPos") == position.x() && nbt.getInt("zPos") == position.z();
+            && nbt.contains("xPos", NbtElement.INT_TYPE) && nbt.contains("zPos", NbtElement.INT_TYPE)
+            && nbt.getInt("xPos") == position.x() && nbt.getInt("zPos") == position.z();
     }
 
     /** Fails early if a future integration accidentally calls Minecraft from the render thread. */

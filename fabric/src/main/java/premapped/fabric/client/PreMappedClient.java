@@ -1,5 +1,7 @@
 package premapped.fabric.client;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
@@ -37,6 +39,7 @@ public final class PreMappedClient implements ClientModInitializer {
     /** Installs events once; no world is opened and no generation starts during mod initialization. */
     @Override
     public void onInitializeClient() {
+        PreMappedFabric.LOGGER.info("PreMapped playerless-session shutdown and progress fixes active");
         ServerTickEvents.END_SERVER_TICK.register(server -> {
             if (server == ownedServer && manager != null) {
                 manager.tick();
@@ -45,12 +48,18 @@ public final class PreMappedClient implements ClientModInitializer {
         });
         ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
             if (server == ownedServer && manager != null) {
-                try { manager.stopForShutdown(); publish(); }
+                try {
+                    manager.stopForShutdown();
+                    publish();
+                    PreMappedFabric.LOGGER.info("PreMapped job checkpointed for shutdown: {}", snapshot);
+                }
                 catch (Exception exception) { report(exception); }
             }
         });
         ServerLifecycleEvents.SERVER_STOPPED.register(server -> {
-            if (server == ownedServer) { manager = null; ownedServer = null; }
+            // Retain the session identity until the client has joined the thread and
+            // cleared vanilla's playerless integrated-server flag during disconnect.
+            if (server == ownedServer) { manager = null; }
         });
     }
 
@@ -67,7 +76,7 @@ public final class PreMappedClient implements ClientModInitializer {
     /** Clears a cancelled launch when vanilla returns from a warning or load failure. */
     public static void returnedToMenu(Screen screen) {
         if (screen instanceof TitleScreen || screen instanceof SelectWorldScreen
-                || screen instanceof CreateWorldScreen) { pendingWorld = null; }
+            || screen instanceof CreateWorldScreen) { pendingWorld = null; }
     }
 
     /**
@@ -76,17 +85,54 @@ public final class PreMappedClient implements ClientModInitializer {
      */
     public static void enter(IntegratedServer server) {
         if (server == null) { throw new IllegalStateException("Vanilla did not create an integrated server"); }
+        if (ownedServer != null && ownedServer != server && ownedServer.getThread().isAlive()) {
+            throw new IllegalStateException("The previous PreMapped server has not finished stopping");
+        }
         ownedServer = server;
+        manager = null;
         snapshot = null;
         error = "";
         server.execute(() -> initialize(server));
         MinecraftClient.getInstance().setScreen(new PreMappedScreen());
     }
 
+    /**
+     * Stops and joins the playerless server before vanilla clears its reference.
+     * Vanilla disconnect relies on an attached client world/player to initiate shutdown;
+     * our menu session has neither. Joining waits for native saves and world-lock release.
+     * This method is called on the client thread, never on the server being joined.
+     *
+     * @return whether a PreMapped session was stopped
+     */
+    public static boolean stopOwnedServer() {
+        IntegratedServer server = ownedServer;
+        if (server == null) { return false; }
+        if (server.isOnThread()) {
+            throw new IllegalStateException("A server cannot join its own shutdown thread");
+        }
+        Path worldPath = server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
+        PreMappedFabric.LOGGER.info("Stopping PreMapped server and saving world at {}", worldPath);
+        if (server.getThread().isAlive()) { server.stop(true); }
+        if (server.getThread().isAlive()) {
+            throw new IllegalStateException("PreMapped server shutdown was interrupted; world is still open");
+        }
+        // Release ownership only after the thread and its native session have finished.
+        if (ownedServer == server) { manager = null; ownedServer = null; }
+        PreMappedFabric.LOGGER.info("PreMapped server stopped; world session released at {}", worldPath);
+        return true;
+    }
+
     /** Initializes a new job or restores a paused one under Minecraft's existing world lock. */
     private static void initialize(MinecraftServer server) {
         try {
             Path worldPath = server.getSavePath(WorldSavePath.ROOT).toAbsolutePath().normalize();
+            // Spawn chunks may exist only in memory. Flush them and level.dat before
+            // any stored-chunk checks or UI claims that the world is ready on disk.
+            PreMappedFabric.LOGGER.info("Saving initial PreMapped world at {}", worldPath);
+            if (!server.save(false, true, true)
+                || !Files.isRegularFile(worldPath.resolve("level.dat"))) {
+                throw new IOException("Initial world save could not be verified at " + worldPath);
+            }
             String worldId = worldPath.getFileName().toString();
             long seed = server.getSaveProperties().getGeneratorOptions().getSeed();
             fingerprint = FabricWorldgenFingerprint.compute(server);
@@ -98,7 +144,7 @@ public final class PreMappedClient implements ClientModInitializer {
                 job = stored.get().job();
                 journal = stored.get().journal();
                 if (!worldId.equals(job.worldId()) || seed != job.seed()
-                        || !"minecraft:overworld".equals(job.dimension())) {
+                    || !"minecraft:overworld".equals(job.dimension())) {
                     throw new IllegalStateException("Saved job does not match this world, seed or supported dimension");
                 }
             } else {
@@ -107,8 +153,10 @@ public final class PreMappedClient implements ClientModInitializer {
                 repository.save(job, journal);
             }
             manager = new GenerationManager(job, journal,
-                    new FabricWorldgenBridge(server, server.getOverworld()), repository);
+                new FabricWorldgenBridge(server, server.getOverworld()), repository);
             publish();
+            PreMappedFabric.LOGGER.info("PreMapped ready at {} with plan {} and {} recorded chunks",
+                worldPath, job.plan(), snapshot.recordedCompleted());
         } catch (Exception exception) { report(exception); }
     }
 
@@ -133,11 +181,18 @@ public final class PreMappedClient implements ClientModInitializer {
             }
             manager.resume(fingerprint, approveChangedWorldgen);
             error = "";
+            PreMappedFabric.LOGGER.info("PreMapped Resume: preserving {} recorded chunks; rechecking {} chunks",
+                manager.snapshot().recordedCompleted(), manager.snapshot().total());
         });
     }
 
     /** Stops dispatching new work immediately after this request reaches the server thread. */
-    public static void pause() { submit(() -> manager.pause()); }
+    public static void pause() {
+        submit(() -> {
+            manager.pause();
+            PreMappedFabric.LOGGER.info("PreMapped Pause requested: {}", manager.snapshot());
+        });
+    }
 
     /** Deletes only the job once pending native work has drained. */
     public static void cancel() { submit(() -> manager.cancel()); }

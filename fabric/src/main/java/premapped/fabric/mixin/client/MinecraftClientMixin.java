@@ -6,6 +6,7 @@ import net.minecraft.resource.ResourcePackManager;
 import net.minecraft.server.SaveLoader;
 import net.minecraft.world.level.storage.LevelStorage;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -18,22 +19,32 @@ import premapped.fabric.client.PreMappedClient;
  */
 @Mixin(MinecraftClient.class)
 public abstract class MinecraftClientMixin {
+    @Shadow private boolean integratedServerRunning;
     @Unique private boolean premapped$interceptLogin;
+
+    /** Stops playerless sessions on Save/Return, application exit and subsequent world launches. */
+    @Inject(method = "disconnect(Lnet/minecraft/client/gui/screen/Screen;)V", at = @At("HEAD"))
+    private void premapped$stopPlayerlessServer(Screen screen, CallbackInfo callback) {
+        if (PreMappedClient.stopOwnedServer()) {
+            // Vanilla clears this flag only when a client world was attached.
+            integratedServerRunning = false;
+        }
+    }
 
     /** Binds this invocation to the exact world requested by a PreMapped menu action. */
     @Inject(method = "startIntegratedServer", at = @At("HEAD"))
     private void premapped$claimLaunch(String name, LevelStorage.Session session,
-                                      ResourcePackManager packs, SaveLoader loader,
-                                      boolean newWorld, CallbackInfo callback) {
+                                       ResourcePackManager packs, SaveLoader loader,
+                                       boolean newWorld, CallbackInfo callback) {
         premapped$interceptLogin = PreMappedClient.claimLaunch(name);
     }
 
     /** Cancels before binding the local connection, after vanilla has initialized its server. */
     @Inject(method = "startIntegratedServer", at = @At(value = "INVOKE", target =
-            "Lnet/minecraft/server/ServerNetworkIo;bindLocal()Ljava/net/SocketAddress;"), cancellable = true)
+        "Lnet/minecraft/server/ServerNetworkIo;bindLocal()Ljava/net/SocketAddress;"), cancellable = true)
     private void premapped$openMonitor(String name, LevelStorage.Session session,
-                                      ResourcePackManager packs, SaveLoader loader,
-                                      boolean newWorld, CallbackInfo callback) {
+                                       ResourcePackManager packs, SaveLoader loader,
+                                       boolean newWorld, CallbackInfo callback) {
         if (premapped$interceptLogin) {
             premapped$interceptLogin = false;
             PreMappedClient.enter(((MinecraftClient) (Object) this).getServer());

@@ -11,7 +11,8 @@ import premapped.persistence.JobRepository;
 /**
  * Serial, nonblocking reference implementation of the chunk-job state machine.
  * All methods run on the server thread. The client consumes immutable snapshots.
- * Only an on-disk FULL check advances progress; native worldgen futures are never joined.
+ * Recorded progress survives Pause/Resume, while each run verifies native storage again.
+ * Only this run's checked chunks can complete a job; native futures are never joined.
  */
 public final class GenerationManager {
     private final WorldgenPlatformBridge bridge;
@@ -25,10 +26,13 @@ public final class GenerationManager {
     private int existingThisRun;
     private int generatedThisRun;
 
-    /** Carries progress safely across the server/client thread boundary. */
+    /**
+     * Carries immutable progress across threads. completed is verified this run;
+     * recordedCompleted retains advisory checkpoint progress while disk checks restart.
+     */
     public record Snapshot(JobState state, int completed, int total, int checkedThisRun,
                            int existingThisRun, int generatedThisRun,
-                           ChunkCoordinate active, String error) { }
+                           ChunkCoordinate active, String error, int recordedCompleted) { }
 
     /** Restores metadata without automatically resuming a job after startup. */
     public GenerationManager(GenerationJob job, ChunkJournal journal,
@@ -37,8 +41,9 @@ public final class GenerationManager {
         this.journal = Objects.requireNonNull(journal);
         this.bridge = Objects.requireNonNull(bridge);
         this.repository = Objects.requireNonNull(repository);
-        if (job.state() == JobState.RUNNING || job.state() == JobState.PAUSING) {
-            this.job = job.withState(JobState.PAUSED, "Interrupted session; manual Resume required");
+        if (job.state() == JobState.RUNNING || job.state() == JobState.PAUSING
+            || job.state() == JobState.COMPLETED) {
+            this.job = job.withState(JobState.PAUSED, "Manual Resume required to verify stored chunks");
         }
     }
 
@@ -48,18 +53,17 @@ public final class GenerationManager {
      */
     public void resume(String fingerprint, boolean approveChangedWorldgen) throws IOException {
         if (job.state() == JobState.RUNNING || job.state() == JobState.PAUSING
-                || job.state() == JobState.CANCELLED) {
+            || job.state() == JobState.CANCELLED) {
             throw new IllegalStateException("Cannot resume a " + job.state() + " job");
         }
         if (!job.worldgenFingerprint().equals(fingerprint) && !approveChangedWorldgen) {
             throw new IllegalStateException("Worldgen changed; explicit approval is required");
         }
         GenerationJob resumed = job.withFingerprint(fingerprint).withState(JobState.RUNNING, "");
-        ChunkJournal rechecked = new ChunkJournal(job.plan().size());
+        // Keep recorded progress; it is advisory until each native chunk is rechecked.
         // Commit intent before allowing the tick loop to dispatch any native work.
-        repository.save(resumed, rechecked);
+        repository.save(resumed, journal);
         job = resumed;
-        journal = rechecked;
         cursor = 0;
         existingThisRun = 0;
         generatedThisRun = 0;
@@ -92,6 +96,8 @@ public final class GenerationManager {
                 Object result = pending.getNow(null);
                 pending = null;
                 if (checkingDisk && !Boolean.TRUE.equals(result)) {
+                    // A missing native chunk invalidates an old completion claim immediately.
+                    journal.set(cursor, false);
                     if (job.state() == JobState.PAUSING) { finishStop(); return; }
                     checkingDisk = false;
                     pending = bridge.generateAndSave(job.plan().at(cursor));
@@ -138,9 +144,9 @@ public final class GenerationManager {
 
     /** Produces a UI snapshot without exposing mutable journal or metadata internals. */
     public Snapshot snapshot() {
-        return new Snapshot(job.state(), journal.completed(), job.plan().size(), cursor,
-                existingThisRun, generatedThisRun,
-                pending == null ? null : job.plan().at(cursor), job.lastError());
+        return new Snapshot(job.state(), cursor, job.plan().size(), cursor,
+            existingThisRun, generatedThisRun,
+            pending == null ? null : job.plan().at(cursor), job.lastError(), journal.completed());
     }
 
     /** Exposes immutable metadata for fingerprint comparison and diagnostics. */
@@ -160,9 +166,9 @@ public final class GenerationManager {
     /** Preserves an actionable failure; an IO failure never masquerades as completion. */
     private void fail(Exception exception) {
         Throwable cause = exception instanceof CompletionException && exception.getCause() != null
-                ? exception.getCause() : exception;
+            ? exception.getCause() : exception;
         String message = "Chunk " + (cursor < job.plan().size() ? job.plan().at(cursor) : "checkpoint")
-                + ": " + cause;
+            + ": " + cause;
         pending = null;
         job = job.withState(JobState.FAILED, message);
         bridge.close();
@@ -170,7 +176,7 @@ public final class GenerationManager {
             repository.save(job, journal);
         } catch (IOException checkpointFailure) {
             job = job.withState(JobState.FAILED,
-                    message + "; checkpoint could not be saved: " + checkpointFailure);
+                message + "; checkpoint could not be saved: " + checkpointFailure);
         }
     }
 }
