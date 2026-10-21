@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "id": "premapped",
+  "version": "${version}",
+  "name": "PreMapped",
+  "description": "Worldgen Foundation: playerless Singleplayer chunk generation with verified checkpoints.",
+  "authors": [
+    "TLiG98"
+  ],
+  "license": "CC0-1.0",
+  "icon": "assets/premapped/icon.png",
+  "environment": "client",
+  "entrypoints": {
+    "main": [
+      "premapped.fabric.PreMappedFabric"
+    ],
+    "client": [
+      "premapped.fabric.client.PreMappedClient"
+    ]
+  },
+  "mixins": [
+    "premapped.mixins.json",
+    {
+      "config": "premapped.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=0.16.10",
+    "minecraft": "=1.20.1",
+    "java": ">=17",
+    "fabric-api": ">=0.92.2",
+    "architectury": ">=9.2.14"
+  }
+}

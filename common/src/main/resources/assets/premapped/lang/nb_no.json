@@ -1,0 +1,18 @@
+{
+  "premapped.title": "PreMapped - Worldgen Foundation",
+  "premapped.setup.area": "Overworld: 16 x 16 chunks (256 x 256 blokker)",
+  "premapped.setup.playerless": "Bruker verdensinnstillingene dine uten å koble til en spiller.",
+  "premapped.setup.create": "Opprett og åpne PreMapped",
+  "premapped.resume": "Start / fortsett",
+  "premapped.pause": "Pause",
+  "premapped.cancel": "Avbryt jobb",
+  "premapped.stop": "Lagre og gå til hovedmenyen",
+  "premapped.loading": "Leser worldgen-oppsett og lagret jobb...",
+  "premapped.monitor.note": "Lukking lagrer og stopper økten. Fortsett manuelt neste gang. Kun chunks kontrollert som FULL i Minecrafts lagring telles som fullført.",
+  "premapped.changed.title": "Worldgen-oppsettet er endret",
+  "premapped.changed.message": "Mods, datapacks, dimensjonsinnstillinger eller konfigurasjon er endret siden lagring. Videre generering kan gi terrengskjøter. Godkjenn endringen og fortsett?",
+  "premapped.cancel.title": "Fjerne genereringsjobben?",
+  "premapped.cancel.message": "Allerede genererte chunks beholdes. Den aktive chunken kan bli fullført før jobben fjernes.",
+  "premapped.monitor.counts": "Eksisterende: %s   Nygenererte: %s",
+  "premapped.init.failed": "Initialisering feilet"
+}

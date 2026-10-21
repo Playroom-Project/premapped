@@ -1,0 +1,18 @@
+{
+  "premapped.title": "PreMapped - Worldgen Foundation",
+  "premapped.setup.area": "Overworld: 16 x 16 chunks (256 x 256 blocks)",
+  "premapped.setup.playerless": "Uses your world settings without joining as a player.",
+  "premapped.setup.create": "Create and open PreMapped",
+  "premapped.resume": "Start / Resume",
+  "premapped.pause": "Pause",
+  "premapped.cancel": "Cancel job",
+  "premapped.stop": "Save and return to title",
+  "premapped.loading": "Loading worldgen inputs and checkpoint...",
+  "premapped.monitor.note": "Closing saves and stops this session. Resume is manual. Only chunks verified as FULL in vanilla storage count as completed.",
+  "premapped.changed.title": "Worldgen inputs have changed",
+  "premapped.changed.message": "Mods, datapacks, dimension settings or configuration differ from the saved job. Continuing may create terrain seams. Approve this change and resume?",
+  "premapped.cancel.title": "Remove this generation job?",
+  "premapped.cancel.message": "Already generated world chunks will be kept. The current chunk may finish before the job is removed.",
+  "premapped.monitor.counts": "Existing: %s   Newly generated: %s",
+  "premapped.init.failed": "Initialization failed"
+}
