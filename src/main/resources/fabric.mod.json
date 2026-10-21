@@ -1,0 +1,38 @@
+{
+	"schemaVersion": 1,
+	"id": "premapped",
+	"version": "${version}",
+	"name": "PreMapped",
+	"description": "description",
+	"authors": [
+		"TLiG98"
+	],
+	"contact": {
+		"homepage": "https://fabricmc.net/",
+		"sources": "https://github.com/FabricMC/fabric-example-mod"
+	},
+	"license": "CC0-1.0",
+	"icon": "assets/premapped/icon.png",
+	"environment": "*",
+	"entrypoints": {
+		"main": [
+			"premapped.PreMapped"
+		],
+		"client": [
+			"premapped.client.PreMappedClient"
+		]
+	},
+	"mixins": [
+		"premapped.mixins.json",
+		{
+			"config": "premapped.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.20.1",
+		"java": ">=17",
+		"fabric-api": "*"
+	}
+}
